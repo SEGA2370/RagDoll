@@ -1,22 +1,39 @@
 using Fusion;
 using Fusion.Sockets;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using TMPro;
 
 public class NetworkRunnerHandler : MonoBehaviour
 {
+    public static NetworkRunnerHandler Instance { get; private set; }
+
+    [Header("UI References")]
+    [SerializeField] GameObject roomSelectionUI;
+    [SerializeField] TMP_InputField roomNameInput;
+    [SerializeField] GameObject roomListPanel;
+    [SerializeField] GameObject roomListItemPrefab;
+
+    [Header("Network References")]
     [SerializeField] NetworkRunner networkRunnerPrefab;
 
-    NetworkRunner networkRunner;
+    private NetworkRunner networkRunner;
+    private List<SessionInfo> sessionList = new List<SessionInfo>();
 
     private void Awake()
     {
-        networkRunner = FindAnyObjectByType<NetworkRunner>();
+        if (Instance == null)
+        {
+            Instance = this;
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
     }
 
     void Start()
@@ -26,44 +43,98 @@ public class NetworkRunnerHandler : MonoBehaviour
             networkRunner = Instantiate(networkRunnerPrefab);
             networkRunner.name = "Network runner";
         }
-
-        // To Change to client Host Start here
-        var clientTask = InitializeNetworkRunner(networkRunner, GameMode.AutoHostOrClient, "TestSession", NetAddress.Any(), SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex), null);
-
-        Utils.DebugLog("InitializeNetworkRunner Called");
-    
+        roomSelectionUI.SetActive(true);
     }
 
-    INetworkSceneManager GetSceneManager(NetworkRunner runner)
+    public async void OnCreateRoom()
     {
-        INetworkSceneManager sceneManager = runner.GetComponents(typeof(MonoBehaviour)).OfType<INetworkSceneManager>().FirstOrDefault();
-        
-        if (sceneManager == null)
+        string roomName = roomNameInput.text;
+        if (string.IsNullOrEmpty(roomName))
         {
-            //Handle netowrked objects that already exists in the scene
-            sceneManager = runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
+            roomName = "Room_" + UnityEngine.Random.Range(1000, 9999);
         }
 
-        return sceneManager;
+        var result = await InitializeNetworkRunner(
+            GameMode.Host,
+            roomName
+        );
+
+        if (result.Ok)
+        {
+            roomSelectionUI.SetActive(false);
+        }
     }
 
-    protected virtual Task InitializeNetworkRunner
-        (NetworkRunner networkRunner, GameMode gameMode, string sessionName, 
-        NetAddress address, SceneRef scene, Action<NetworkRunner> initialized)
+    public async void OnJoinRoom(SessionInfo sessionInfo)
     {
-        INetworkSceneManager sceneManager = GetSceneManager(networkRunner);
+        var result = await InitializeNetworkRunner(
+            GameMode.Client,
+            sessionInfo.Name
+        );
+
+        if (result.Ok)
+        {
+            roomSelectionUI.SetActive(false);
+        }
+    }
+
+    public async void OnRefreshRoomList()
+    {
+        ClearRoomList();
+        if (networkRunner == null) return;
+
+        var result = await networkRunner.JoinSessionLobby(SessionLobby.Custom, "OurLobbyID");
+        if (!result.Ok)
+        {
+            Debug.LogError($"Failed to join lobby: {result.ErrorMessage}");
+        }
+    }
+
+    private void ClearRoomList()
+    {
+        foreach (Transform child in roomListPanel.transform)
+        {
+            Destroy(child.gameObject);
+        }
+    }
+
+    private async Task<StartGameResult> InitializeNetworkRunner(
+        GameMode gameMode,
+        string sessionName)
+    {
+        // Get or create the Spawner component
+        var spawner = networkRunner.GetComponent<Spawner>();
+        if (spawner == null)
+        {
+            spawner = networkRunner.gameObject.AddComponent<Spawner>();
+        }
 
         networkRunner.ProvideInput = true;
+        networkRunner.AddCallbacks(spawner);
 
-        return networkRunner.StartGame(new StartGameArgs
+        return await networkRunner.StartGame(new StartGameArgs
         {
             GameMode = gameMode,
-            Address = address,
-            Scene = scene,
             SessionName = sessionName,
             CustomLobbyName = "OurLobbyID",
-            SceneManager = sceneManager,
+            Scene = SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex),
+            SceneManager = networkRunner.gameObject.AddComponent<NetworkSceneManagerDefault>(),
+            PlayerCount = 8
         });
     }
 
+    public void HandleSessionListUpdated(List<SessionInfo> sessions)
+    {
+        sessionList = sessions.Where(s => s.IsVisible && s.PlayerCount < 8).ToList();
+        ClearRoomList();
+
+        foreach (var session in sessionList)
+        {
+            var listItem = Instantiate(roomListItemPrefab, roomListPanel.transform);
+            if (listItem.TryGetComponent<RoomListItem>(out var item))
+            {
+                item.Setup(session, OnJoinRoom);
+            }
+        }
+    }
 }

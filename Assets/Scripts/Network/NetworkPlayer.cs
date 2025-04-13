@@ -24,7 +24,7 @@ public class NetworkPlayer : NetworkBehaviour, IPlayerLeft
     bool isGrabButtonPressed = false;
 
     //Controller settings
-    float maxSpeed = 3;
+    float maxSpeed = 4.5f;
 
     //States
     bool isGrounded = false;
