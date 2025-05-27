@@ -1,6 +1,6 @@
 # 🧍‍♂️ Ragdoll Physics Playground – Online Multiplayer
 
-<img src="Assets/Images/ragdoll_preview.jpg" alt="Ragdoll Gameplay Preview" width="600"/>
+<img src="Assets/Physics Material/Ragdoll.png" alt="Ragdoll Gameplay Preview" width="600"/>
 
 ## 🎮 Project Overview
 
